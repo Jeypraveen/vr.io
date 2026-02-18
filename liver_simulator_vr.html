@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>🔪 Liver VR Surgical Simulator</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#111; overflow:hidden; font-family: 'Courier New', monospace; }
+
+  #info {
+    position:fixed; top:12px; left:12px;
+    background:rgba(0,0,0,0.85);
+    color:#fff; padding:14px 18px; border-radius:10px;
+    font:11px 'Courier New', monospace;
+    z-index:10; border:1px solid #444; line-height:2.1;
+    backdrop-filter: blur(8px);
+    max-width: 270px;
+  }
+  #info h3 { color:#ff6644; margin-bottom:6px; font-size:13px; letter-spacing:1px; }
+  #info span { color:#ffdd00; }
+  #status { color:#44ff88; font-weight:bold; margin-top:6px; }
+  #ncuts  { color:#ffaa00; }
+  #vrinfo { color:#88aaff; font-size:10px; margin-top:4px; border-top:1px solid #333; padding-top:4px; }
+
+  #legend {
+    position:fixed; top:12px; right:12px;
+    background:rgba(0,0,0,0.85);
+    color:#fff; padding:12px 16px; border-radius:10px;
+    font:11px 'Courier New', monospace;
+    z-index:10; border:1px solid #444; line-height:2;
+    backdrop-filter: blur(8px);
+  }
+  #legend h3 { color:#aaa; font-size:10px; letter-spacing:2px; margin-bottom:4px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+
+  #bar {
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    display:flex; gap:8px; z-index:10;
+  }
+  button {
+    background:rgba(17,17,17,0.9); border:1px solid #555; color:#ccc;
+    padding:10px 18px; border-radius:8px; cursor:pointer;
+    font:12px 'Courier New', monospace; transition:all .15s;
+    backdrop-filter: blur(4px);
+  }
+  button:hover { background:rgba(60,60,60,0.9); color:#fff; border-color:#aaa; }
+
+  #bowl-status {
+    position:fixed; bottom:70px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.85); color:#ffcc44;
+    padding:8px 18px; border-radius:8px;
+    font:12px 'Courier New', monospace;
+    z-index:10; border:1px solid #664400;
+    display:none;
+    backdrop-filter: blur(4px);
+  }
+
+  #tumor-btn {
+    position:fixed; top:50%; right:16px; transform:translateY(-50%);
+    display:none;
+  }
+
+  #gamepad-indicator {
+    position:fixed; bottom:16px; right:16px;
+    background:rgba(0,0,0,0.85);
+    color:#88aaff; padding:8px 12px; border-radius:8px;
+    font:10px 'Courier New', monospace;
+    z-index:10; border:1px solid #334;
+    display:none;
+    backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <h3>🔪 LIVER SURGICAL SIMULATOR</h3>
+  <span>LEFT DRAG</span> → Rotate camera<br>
+  <span>RIGHT DRAG on liver</span> → ✂️ Cut tissue<br>
+  <span>RIGHT DRAG on TUMOR</span> → 🔴 Resect tumor<br>
+  <span>SCROLL</span> → Zoom<br>
+  <span>T</span> → Toggle tumor &nbsp; <span>R</span> → Reset<br>
+  <div id="vrinfo">
+    🥽 VR: Right trigger = Cut<br>
+    Left stick = Move scalpel<br>
+    Right stick = Rotate view
+  </div>
+  <div id="status">Ready — right-drag on liver to cut</div>
+  <div id="ncuts">Incisions: 0</div>
+</div>
+
+<div id="legend">
+  <h3>ANATOMY</h3>
+  <div><span class="dot" style="background:#ff2222"></span>Hepatic Artery</div>
+  <div><span class="dot" style="background:#dd22aa"></span>Portal Vein</div>
+  <div><span class="dot" style="background:#aadd00"></span>Bile Duct</div>
+  <div><span class="dot" style="background:#2244ff"></span>Hepatic Vein</div>
+  <div><span class="dot" style="background:#ffee00"></span>Nerve</div>
+  <div><span class="dot" style="background:#00ffff"></span>Lymphatic</div>
+  <div><span class="dot" style="background:#ff0000;box-shadow:0 0 6px #f00"></span>TUMOR (press T)</div>
+</div>
+
+<div id="bowl-status">🥣 Tumor placed in specimen bowl!</div>
+
+<div id="gamepad-indicator">🎮 VR Controller Connected</div>
+
+<div id="bar">
+  <button onclick="toggleTumor()" id="btn-t">🔴 TUMOR</button>
+  <button onclick="toggleNerves()">💛 NERVES</button>
+  <button onclick="toggleVessels()">🩸 VESSELS</button>
+  <button onclick="extractTumorToBowl()" id="btn-extract" style="display:none;border-color:#ff8800;color:#ffaa44;">🥣 EXTRACT</button>
+  <button onclick="resetAll()" style="border-color:#f55;color:#f88;">↺ RESET</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+// ─── RENDERER ──────────────────────────────────────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(W, H);
+renderer.setClearColor(0x0d1117, 1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// ─── SCENE + CAMERA ────────────────────────────────────────────────
+const scene  = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0d1117, 30, 80);
+const camera = new THREE.PerspectiveCamera(50, W/H, 0.1, 1000);
+camera.position.set(0, 2, 20);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 5;
+controls.maxDistance = 60;
+controls.target.set(0, 0, 0);
+controls.mouseButtons = {
+  LEFT:   THREE.MOUSE.ROTATE,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT:  null
+};
+
+// ─── LIGHTS ────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffeedd, 1.5));
+
+const d1 = new THREE.DirectionalLight(0xffffff, 3.0);
+d1.position.set(0, 5, 20);
+d1.castShadow = true;
+d1.shadow.mapSize.width = 2048;
+d1.shadow.mapSize.height = 2048;
+scene.add(d1);
+
+const d2 = new THREE.DirectionalLight(0xffeedd, 1.5);
+d2.position.set(20, 20, 20);
+scene.add(d2);
+
+const d3 = new THREE.DirectionalLight(0xddccff, 0.8);
+d3.position.set(-20, -10, 10);
+scene.add(d3);
+
+// OR spotlight from above
+const spot = new THREE.SpotLight(0xffffff, 2.5, 40, Math.PI/6, 0.3);
+spot.position.set(0, 15, 5);
+spot.target.position.set(0, 0, 0);
+spot.castShadow = true;
+scene.add(spot);
+scene.add(spot.target);
+
+// ─── LIVER ─────────────────────────────────────────────────────────
+const liverMeshes = [];
+const liverGroup  = new THREE.Group();
+scene.add(liverGroup);
+
+function addLobe(x, y, z, rx, ry, rz) {
+  const geo = new THREE.SphereGeometry(1, 64, 40);
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0xcc3300,
+    specular: 0x441100,
+    shininess: 40,
+    side: THREE.FrontSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.scale.set(rx, ry, rz);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData.isLiver = true;
+  liverGroup.add(mesh);
+  liverMeshes.push(mesh);
+  return mesh;
+}
+
+addLobe(  0.0,  0.0,  0.0,   4.5, 2.6, 3.2);
+addLobe(  2.9, -0.2,  0.2,   2.8, 2.1, 2.8);
+addLobe( -2.4,  0.3,  0.0,   2.1, 1.8, 2.4);
+addLobe(  0.4,  1.7, -0.6,   1.1, 0.7, 0.9);
+addLobe(  0.9, -1.3,  1.0,   1.0, 0.7, 0.85);
+
+// Gallbladder
+const gb = new THREE.Mesh(
+  new THREE.SphereGeometry(0.55, 24, 16),
+  new THREE.MeshPhongMaterial({ color: 0x44aa10, shininess: 40 })
+);
+gb.scale.set(1, 1.5, 1);
+gb.position.set(2.7, -2.2, 1.2);
+gb.castShadow = true;
+scene.add(gb);
+
+// ─── OR TABLE + FLOOR ──────────────────────────────────────────────
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  new THREE.MeshPhongMaterial({ color: 0x111820 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -7.5;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const table = new THREE.Mesh(
+  new THREE.BoxGeometry(22, 0.3, 14),
+  new THREE.MeshPhongMaterial({ color: 0x1a3040, shininess: 20 })
+);
+table.position.set(0, -7.0, 0);
+table.receiveShadow = true;
+scene.add(table);
+
+const cloth = new THREE.Mesh(
+  new THREE.BoxGeometry(21.5, 0.12, 13.5),
+  new THREE.MeshPhongMaterial({ color: 0x1a5c30, shininess: 5 })
+);
+cloth.position.set(0, -6.83, 0);
+cloth.receiveShadow = true;
+scene.add(cloth);
+
+// ─── SPECIMEN BOWL ─────────────────────────────────────────────────
+const bowlGroup = new THREE.Group();
+bowlGroup.position.set(8, -6.0, 2);
+scene.add(bowlGroup);
+
+// Bowl outer
+const bowlOuter = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.8, 1.1, 1.0, 32, 1, false),
+  new THREE.MeshPhongMaterial({ color: 0xcccccc, shininess: 150, specular: 0x888888 })
+);
+bowlOuter.castShadow = true;
+bowlGroup.add(bowlOuter);
+
+// Bowl inner (open top)
+const bowlInner = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.6, 1.0, 0.95, 32, 1, true),
+  new THREE.MeshPhongMaterial({ color: 0xaaaaaa, side: THREE.BackSide, shininess: 80 })
+);
+bowlInner.position.y = 0.02;
+bowlGroup.add(bowlInner);
+
+// Bowl label
+const bowlBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.1, 1.1, 0.1, 32),
+  new THREE.MeshPhongMaterial({ color: 0x999999 })
+);
+bowlBase.position.y = -0.55;
+bowlGroup.add(bowlBase);
+
+// Bowl arrow indicator
+const arrowMat = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x664400 });
+const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.6, 8), arrowMat);
+arrow.position.set(0, 2.5, 0);
+bowlGroup.add(arrow);
+let arrowBob = 0;
+
+// "SPECIMEN" text plane (simple indicator)
+const specLabel = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.5, 0.5),
+  new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x443300 })
+);
+specLabel.position.set(0, 1.5, 0);
+specLabel.lookAt(bowlGroup.position.clone().add(new THREE.Vector3(0, 1.5, 5)));
+bowlGroup.add(specLabel);
+
+// ─── INTERNAL ANATOMY ──────────────────────────────────────────────
+const internalGroup = new THREE.Group();
+scene.add(internalGroup);
+const allInternals = [];
+
+function iTube(ax,ay,az, bx,by,bz, r, hex, name) {
+  const A   = new THREE.Vector3(ax,ay,az);
+  const B   = new THREE.Vector3(bx,by,bz);
+  const mid = A.clone().add(B).multiplyScalar(0.5);
+  const len = A.distanceTo(B);
+  const geo = new THREE.CylinderGeometry(r, r*0.85, len, 12);
+  const mat = new THREE.MeshPhongMaterial({ color: hex, shininess: 60 });
+  const m   = new THREE.Mesh(geo, mat);
+  m.position.copy(mid);
+  m.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0,1,0),
+    B.clone().sub(A).normalize()
+  );
+  m.visible = false;
+  m.userData = { name, revealed: false };
+  internalGroup.add(m);
+  allInternals.push(m);
+}
+
+function iBlob(x,y,z,r, hex, name) {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(r, 18, 12),
+    new THREE.MeshPhongMaterial({ color: hex, shininess: 40 })
+  );
+  m.position.set(x,y,z);
+  m.visible = false;
+  m.userData = { name, revealed: false };
+  internalGroup.add(m);
+  allInternals.push(m);
+}
+
+// Hepatic Artery
+iTube(  0,-2.5, .4,  0, 2.5, .4,  .18, 0xff2222,'artery');
+iTube(  0,  .5, .4,  3.2,.9, .5,  .12, 0xff2222,'artery');
+iTube(  0,  .5, .4, -3.0,.8, .5,  .11, 0xff2222,'artery');
+iTube(3.2, .9,  .5,  4.2, 0, .6,  .09, 0xff2222,'artery');
+
+// Portal Vein
+iTube(  0,-2.0,  0,   0,  .8,  0,  .32, 0xdd22aa,'portal');
+iTube(  0,   0,  0,  3.0, .5, .1,  .23, 0xdd22aa,'portal');
+iTube(  0,   0,  0, -2.8, .4, .1,  .20, 0xdd22aa,'portal');
+
+// Bile Ducts
+iTube(-.1, 2.0,-.6, -.1,-1.5,-.6,  .10, 0xaadd00,'bile');
+iTube(-.1,  .6,-.6,  2.8, .9,-.5,  .08, 0xaadd00,'bile');
+iTube(-.1,  .6,-.6, -2.6, .8,-.5,  .07, 0xaadd00,'bile');
+
+// Hepatic Veins
+iTube( .2, 2.8,-.7,  .2,-1.5,-.3,  .26, 0x2244ff,'hepaticV');
+iTube(2.2, 2.2,-.6,  .2,  .7,-.4,  .18, 0x2244ff,'hepaticV');
+iTube(-2.0,2.1,-.6,  .2,  .7,-.4,  .16, 0x2244ff,'hepaticV');
+
+// Nerves
+iTube( .7, 1.5, 1.9,  .7,-1.5,1.9,  .045, 0xffee00,'nerve');
+iTube(-.6, 1.3, 2.0, -.6,-1.3,2.0,  .038, 0xffee00,'nerve');
+iTube(1.8,  .8, 1.4, 1.8,-1.0,1.4,  .032, 0xffee00,'nerve');
+iTube(-1.6, .9, 1.5,-1.6,-1.0,1.5,  .032, 0xffee00,'nerve');
+
+// Lymphatics
+iTube(1.4, 1.5,-1.6, 1.4,-.8,-1.6,  .065, 0x00ffff,'lymph');
+iTube(-1.2,1.4,-1.6,-1.2,-.7,-1.6,  .055, 0x00ffff,'lymph');
+
+// Sinusoids
+for (let i=0; i<22; i++) {
+  iBlob(
+    (Math.random()-.5)*6.5, (Math.random()-.5)*4.5, (Math.random()-.5)*4.0,
+    .05+Math.random()*.14, 0xdd2222,'sinusoid'
+  );
+}
+
+// ─── TUMOR ─────────────────────────────────────────────────────────
+const tumorMat = new THREE.MeshPhongMaterial({
+  color: 0xff0000,
+  emissive: 0xaa0000,
+  shininess: 80,
+});
+const tumor = new THREE.Mesh(new THREE.SphereGeometry(0.85, 40, 28), tumorMat);
+tumor.position.set(0.3, 0.1, 0.2);
+tumor.visible = true;          // VISIBLE BY DEFAULT
+tumor.castShadow = true;
+tumor.userData = { name:'tumor', revealed:true, isTumor:true };
+internalGroup.add(tumor);
+allInternals.push(tumor);
+
+const tumorGlow = new THREE.Mesh(
+  new THREE.SphereGeometry(1.3, 24, 16),
+  new THREE.MeshPhongMaterial({
+    color:0xff2200, transparent:true, opacity:0.22,
+    emissive:0xff0000, side:THREE.BackSide,
+  })
+);
+tumorGlow.position.copy(tumor.position);
+tumorGlow.visible = true;      // VISIBLE BY DEFAULT
+internalGroup.add(tumorGlow);
+
+// Tumor cut progress tracking
+let tumorCutCount = 0;
+const CUTS_TO_RESECT = 8;
+let tumorResected = false;
+
+// ─── SCALPEL ───────────────────────────────────────────────────────
+const scalpel = new THREE.Group();
+scene.add(scalpel);
+
+const bladeM = new THREE.Mesh(
+  new THREE.ConeGeometry(0.035, 0.8, 8),
+  new THREE.MeshPhongMaterial({ color:0xddeeff, specular:0xffffff, shininess:200 })
+);
+bladeM.rotation.x = Math.PI;
+scalpel.add(bladeM);
+
+const guardM = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.055, 0.055, 0.1, 8),
+  new THREE.MeshPhongMaterial({ color:0x999aaa })
+);
+guardM.position.y = 0.45;
+scalpel.add(guardM);
+
+const handleM = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.03, 0.038, 0.72, 10),
+  new THREE.MeshPhongMaterial({ color:0x221108 })
+);
+handleM.position.y = 0.86;
+scalpel.add(handleM);
+scalpel.visible = false;
+
+// ─── CUTTING STATE ─────────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse2D   = new THREE.Vector2();
+const wounds    = [];
+let   cutCount  = 0;
+let   rightDown = false;
+let   lastPt    = null;
+let   onLiver   = false;
+let   onTumor   = false;
+
+const REVEAL_R = 4.0;
+const MIN_DIST = 0.08;
+
+const statusEl    = document.getElementById('status');
+const ncutsEl     = document.getElementById('ncuts');
+const bowlStatusEl= document.getElementById('bowl-status');
+
+function revealNear(pt) {
+  allInternals.forEach(obj => {
+    if (!obj.visible && obj.userData.name !== 'tumor' && obj.position.distanceTo(pt) < REVEAL_R) {
+      obj.visible = true;
+      obj.userData.revealed = true;
+    }
+  });
+}
+
+// Tumor resection progress ring
+const ringGeo = new THREE.TorusGeometry(1.0, 0.06, 8, 64);
+const ringMat = new THREE.MeshPhongMaterial({ color:0xffaa00, emissive:0x664400 });
+const progressRing = new THREE.Mesh(ringGeo, ringMat);
+progressRing.position.copy(tumor.position);
+progressRing.visible = false;
+scene.add(progressRing);
+
+function spawnCut(pt, nrm, isTumorCut) {
+  cutCount++;
+  ncutsEl.textContent = 'Incisions: ' + cutCount;
+
+  const w = 0.5 + Math.random()*0.8;
+  const h = 0.07 + Math.random()*0.18;
+
+  const slit = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshPhongMaterial({ color: isTumorCut ? 0x220000 : 0x0a0000, side:THREE.DoubleSide })
+  );
+  slit.position.copy(pt).addScaledVector(nrm, 0.012);
+  slit.lookAt(pt.clone().add(nrm));
+  scene.add(slit);
+  wounds.push(slit);
+
+  const inner = new THREE.Mesh(
+    new THREE.PlaneGeometry(w*.45, h*.4),
+    new THREE.MeshPhongMaterial({ color:0x000000, side:THREE.DoubleSide })
+  );
+  inner.position.copy(pt).addScaledVector(nrm, 0.018);
+  inner.lookAt(pt.clone().add(nrm));
+  scene.add(inner);
+  wounds.push(inner);
+
+  // Blood drops
+  for (let i=0; i<12; i++) {
+    const r    = 0.022 + Math.random()*0.07;
+    const drop = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 7, 6),
+      new THREE.MeshPhongMaterial({
+        color: isTumorCut ? 0xaa0044 : 0x880000,
+        transparent:true, opacity:1
+      })
+    );
+    drop.position.copy(pt).add(new THREE.Vector3(
+      (Math.random()-.5)*.5, (Math.random()-.5)*.35, (Math.random()-.5)*.2
+    ));
+    drop.userData.isBlood = true;
+    drop.userData.vy      = -(0.012 + Math.random()*.03);
+    drop.userData.life    = 1.2 + Math.random()*.8;
+    scene.add(drop);
+    wounds.push(drop);
+  }
+
+  if (isTumorCut) {
+    tumorCutCount++;
+    const progress = tumorCutCount / CUTS_TO_RESECT;
+    
+    // Show progress ring
+    progressRing.visible = true;
+    progressRing.position.copy(tumor.position);
+    // Scale ring to show progress
+    progressRing.scale.setScalar(1 + progress * 0.5);
+    ringMat.color.setHSL(0.08 - progress*0.08, 1, 0.5);
+    ringMat.emissiveIntensity = progress;
+    
+    // Tumor shrinks as cut progresses
+    const tumorScale = 1.0 - progress * 0.15;
+    tumor.scale.setScalar(tumorScale);
+    tumorGlow.scale.setScalar(tumorScale);
+    tumorMat.emissive.setHex(0xaa0000 + Math.floor(progress * 0x550000));
+
+    statusEl.textContent = `✂️ RESECTING TUMOR: ${Math.round(progress*100)}%`;
+    statusEl.style.color = '#ff8800';
+
+    if (tumorCutCount >= CUTS_TO_RESECT && !tumorResected) {
+      completeTumorResection();
+    }
+  } else {
+    revealNear(pt);
+  }
+}
+
+function completeTumorResection() {
+  tumorResected = true;
+  progressRing.visible = false;
+
+  // Flash tumor red
+  tumorMat.color.setHex(0xff4400);
+  statusEl.textContent = '✅ TUMOR RESECTED! Click EXTRACT to place in bowl.';
+  statusEl.style.color = '#ffaa00';
+
+  // Show extract button
+  document.getElementById('btn-extract').style.display = 'inline-block';
+
+  // Make tumor draggable / highlight it
+  tumor.material.emissive.setHex(0xff6600);
+  tumorGlow.material.opacity = 0.5;
+  tumorGlow.material.color.setHex(0xff6600);
+}
+
+function extractTumorToBowl() {
+  if (!tumorResected) {
+    statusEl.textContent = '⚠️ Cut the tumor first to resect it!';
+    statusEl.style.color = '#ffaa00';
+    return;
+  }
+
+  // Animate tumor flying to bowl
+  tumor.userData.flying = true;
+  tumor.userData.flyTarget = bowlGroup.position.clone().add(new THREE.Vector3(0, 0.5, 0));
+  tumor.userData.flyStart  = tumor.position.clone();
+  tumor.userData.flyT      = 0;
+  tumorGlow.visible = false;
+  progressRing.visible = false;
+
+  statusEl.textContent = '🥣 Tumor extracted into specimen bowl!';
+  statusEl.style.color = '#44ff88';
+
+  bowlStatusEl.style.display = 'block';
+  setTimeout(() => { bowlStatusEl.style.display = 'none'; }, 3500);
+
+  document.getElementById('btn-extract').style.display = 'none';
+
+  // Leave a wound cavity where tumor was
+  const cavity = new THREE.Mesh(
+    new THREE.SphereGeometry(0.7, 24, 16),
+    new THREE.MeshPhongMaterial({ color:0x110000, transparent:true, opacity:0.85 })
+  );
+  cavity.position.copy(tumor.userData.flyStart);
+  scene.add(cavity);
+  wounds.push(cavity);
+}
+
+// ─── MOUSE EVENTS ──────────────────────────────────────────────────
+renderer.domElement.addEventListener('mousemove', e => {
+  mouse2D.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+  mouse2D.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse2D, camera);
+
+  // Check tumor first
+  const tumorHits = !tumorResected ? raycaster.intersectObject(tumor, false) : [];
+  const liverHits = raycaster.intersectObjects(liverMeshes, false);
+
+  if (tumorHits.length > 0) {
+    const h   = tumorHits[0];
+    const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+
+    onTumor = true;
+    onLiver = false;
+    scalpel.visible = true;
+    document.body.style.cursor = 'crosshair';
+
+    scalpel.position.copy(h.point).addScaledVector(nrm, 0.6);
+    scalpel.lookAt(h.point.clone().add(nrm));
+    scalpel.rotateX(-Math.PI/2);
+
+    if (rightDown) {
+      if (!lastPt) {
+        lastPt = h.point.clone();
+        spawnCut(h.point.clone(), nrm, true);
+      } else if (h.point.distanceTo(lastPt) > MIN_DIST) {
+        spawnCut(h.point.clone(), nrm, true);
+        lastPt = h.point.clone();
+      }
+    }
+
+  } else if (liverHits.length > 0) {
+    const h   = liverHits[0];
+    const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+
+    onTumor = false;
+    onLiver = true;
+    scalpel.visible = true;
+    document.body.style.cursor = 'crosshair';
+
+    scalpel.position.copy(h.point).addScaledVector(nrm, 0.6);
+    scalpel.lookAt(h.point.clone().add(nrm));
+    scalpel.rotateX(-Math.PI/2);
+
+    if (rightDown) {
+      if (!lastPt) {
+        lastPt = h.point.clone();
+        spawnCut(h.point.clone(), nrm, false);
+      } else if (h.point.distanceTo(lastPt) > MIN_DIST) {
+        spawnCut(h.point.clone(), nrm, false);
+        lastPt = h.point.clone();
+      }
+    }
+  } else {
+    onTumor = false;
+    onLiver = false;
+    scalpel.visible = false;
+    document.body.style.cursor = 'default';
+    if (rightDown) lastPt = null;
+  }
+
+  if (rightDown) {
+    if (onTumor) {
+      statusEl.textContent = '✂️ CUTTING TUMOR...';
+      statusEl.style.color = '#ff4444';
+    } else if (onLiver) {
+      statusEl.textContent = '✂️ CUTTING liver tissue...';
+      statusEl.style.color = '#ff6666';
+    }
+  }
+});
+
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button === 2) {
+    rightDown = true;
+    controls.enabled = false;
+    if (onTumor) {
+      statusEl.textContent = `✂️ RESECT TUMOR — keep dragging! (${tumorCutCount}/${CUTS_TO_RESECT} cuts)`;
+      statusEl.style.color = '#ff4444';
+    } else if (onLiver) {
+      statusEl.textContent = '✂️ CUTTING — drag across liver!';
+      statusEl.style.color = '#ff5555';
+    } else {
+      statusEl.textContent = '⚠️ Aim at the red liver or tumor first!';
+      statusEl.style.color = '#ffaa00';
+    }
+  }
+});
+
+renderer.domElement.addEventListener('mouseup', e => {
+  if (e.button === 2) {
+    rightDown = false;
+    lastPt    = null;
+    controls.enabled = true;
+    if (!tumorResected) {
+      statusEl.textContent = tumorCutCount > 0
+        ? `Ready — ${tumorCutCount}/${CUTS_TO_RESECT} cuts on tumor`
+        : 'Ready — right-drag on liver or TUMOR to cut';
+    }
+    statusEl.style.color = '#44ff88';
+  }
+});
+
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+// ─── KEYBOARD ──────────────────────────────────────────────────────
+let tumorOn = true, nervesOn = true, vesselsOn = true;
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k==='t') toggleTumor();
+  if (k==='n') toggleNerves();
+  if (k==='v') toggleVessels();
+  if (k==='r') resetAll();
+  if (k==='e') extractTumorToBowl();
+});
+
+function toggleTumor() {
+  tumorOn = !tumorOn;
+  if (!tumorResected) {
+    tumor.visible     = tumorOn;
+    tumorGlow.visible = tumorOn;
+  }
+  document.getElementById('btn-t').style.borderColor = tumorOn ? '#ff4444' : '#666';
+  document.getElementById('btn-t').style.color       = tumorOn ? '#ff4444' : '#ccc';
+  statusEl.textContent = tumorOn ? '🔴 TUMOR visible! Right-drag to resect.' : 'Tumor hidden';
+  statusEl.style.color  = tumorOn ? '#ff4444' : '#44ff88';
+}
+
+function toggleNerves() {
+  nervesOn = !nervesOn;
+  allInternals.forEach(o => {
+    if (o.userData.name==='nerve' && o.userData.revealed) o.visible = nervesOn;
+  });
+}
+
+function toggleVessels() {
+  vesselsOn = !vesselsOn;
+  allInternals.forEach(o => {
+    if (['artery','portal','bile','hepaticV','lymph'].includes(o.userData.name) && o.userData.revealed)
+      o.visible = vesselsOn;
+  });
+}
+
+function resetAll() {
+  wounds.forEach(m => scene.remove(m));
+  wounds.length = 0;
+  cutCount = 0;
+  tumorCutCount = 0;
+  tumorResected = false;
+  ncutsEl.textContent = 'Incisions: 0';
+  allInternals.forEach(o => {
+    if (o === tumor || o === tumorGlow) {
+      o.visible = true;
+    } else {
+      o.visible = false;
+      o.userData.revealed = false;
+    }
+  });
+  tumor.scale.setScalar(1);
+  tumor.userData.flying = false;
+  tumor.position.set(0.3, 0.1, 0.2);
+  tumorGlow.scale.setScalar(1);
+  tumorGlow.position.copy(tumor.position);
+  tumorMat.color.setHex(0xff0000);
+  tumorMat.emissive.setHex(0xaa0000);
+  tumorGlow.material.opacity = 0.22;
+  tumorGlow.material.color.setHex(0xff2200);
+  progressRing.visible = false;
+  document.getElementById('btn-extract').style.display = 'none';
+  bowlStatusEl.style.display = 'none';
+  statusEl.textContent = 'Reset! Right-drag on liver or tumor.';
+  statusEl.style.color = '#ffcc00';
+  tumorOn = true;
+  document.getElementById('btn-t').style.borderColor = '#ff4444';
+  document.getElementById('btn-t').style.color       = '#ff4444';
+}
+
+// ─── META VR / GAMEPAD SUPPORT ─────────────────────────────────────
+// Works with Meta Quest controllers via WebXR Gamepad API
+let vrScalpelPos = new THREE.Vector3(0, 1, -3);
+let vrCutting    = false;
+let vrLastCutPos = null;
+let vrConnected  = false;
+
+const gamepadIndicator = document.getElementById('gamepad-indicator');
+
+function pollGamepads() {
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  
+  for (let i = 0; i < gamepads.length; i++) {
+    const gp = gamepads[i];
+    if (!gp) continue;
+    
+    // Detect Meta Quest / Oculus controllers
+    const isVR = gp.id && (
+      gp.id.toLowerCase().includes('oculus') ||
+      gp.id.toLowerCase().includes('meta') ||
+      gp.id.toLowerCase().includes('quest') ||
+      gp.id.toLowerCase().includes('openvr') ||
+      gp.id.toLowerCase().includes('xinput') // generic VR
+    );
+    
+    if (!vrConnected) {
+      vrConnected = true;
+      gamepadIndicator.style.display = 'block';
+      gamepadIndicator.textContent = `🎮 ${gp.id.substring(0,28)}`;
+    }
+
+    // Right controller (index 1) or any controller
+    const isRight = i === 1 || (gp.hand === 'right') || i === 0;
+    
+    // Axes: [0]=left stick X, [1]=left stick Y, [2]=right stick X, [3]=right stick Y
+    const axes = gp.axes || [];
+    
+    // Left stick / right stick → move scalpel position in 3D space
+    if (axes.length >= 2) {
+      const lx = axes[0] || 0;
+      const ly = axes[1] || 0;
+      vrScalpelPos.x += lx * 0.08;
+      vrScalpelPos.y -= ly * 0.08;
+      vrScalpelPos.x  = Math.max(-8, Math.min(8, vrScalpelPos.x));
+      vrScalpelPos.y  = Math.max(-4, Math.min(4, vrScalpelPos.y));
+    }
+
+    // Right stick → rotate camera
+    if (axes.length >= 4) {
+      const rx = axes[2] || 0;
+      const ry = axes[3] || 0;
+      if (Math.abs(rx) > 0.15) controls.object.position.applyAxisAngle(
+        new THREE.Vector3(0,1,0), -rx * 0.02
+      );
+      if (Math.abs(ry) > 0.15) controls.object.position.y += ry * 0.05;
+    }
+
+    // Buttons
+    const buttons = gp.buttons || [];
+    
+    // Button 0 = A button / Cross = trigger
+    // Right trigger (button index 0 on Oculus = primary trigger)
+    const trigger = buttons[0] ? buttons[0].pressed || buttons[0].value > 0.5 : false;
+    
+    // Index trigger (button 1 on Meta)
+    const indexTrigger = buttons[1] ? buttons[1].pressed || buttons[1].value > 0.5 : false;
+    
+    const isCutting = trigger || indexTrigger;
+    
+    if (isCutting && !vrCutting) {
+      vrCutting = true;
+      controls.enabled = false;
+    } else if (!isCutting && vrCutting) {
+      vrCutting = false;
+      vrLastCutPos = null;
+      controls.enabled = true;
+    }
+
+    // Grip / B button (index 2 or 3) = extract tumor
+    const gripBtn = buttons[2] ? buttons[2].pressed : false;
+    const bBtn    = buttons[4] ? buttons[4].pressed : false;
+    if ((gripBtn || bBtn) && tumorResected) {
+      extractTumorToBowl();
+    }
+    
+    // Thumbstick click (button 10 or 11) = reset
+    const thumbClick = buttons[10] ? buttons[10].pressed : false;
+    if (thumbClick) resetAll();
+
+    // Move virtual scalpel using VR position
+    if (vrConnected) {
+      // Project vrScalpelPos into scene
+      const worldPos = vrScalpelPos.clone();
+      scalpel.visible = true;
+      scalpel.position.copy(worldPos);
+      scalpel.lookAt(worldPos.clone().add(new THREE.Vector3(0, -1, 0)));
+
+      // VR cutting
+      if (vrCutting) {
+        raycaster.setFromCamera(
+          new THREE.Vector2(
+            (worldPos.x / 8),
+            (worldPos.y / 4)
+          ),
+          camera
+        );
+
+        const tumorHits = !tumorResected ? raycaster.intersectObject(tumor, false) : [];
+        const liverHits = raycaster.intersectObjects(liverMeshes, false);
+
+        if (tumorHits.length > 0) {
+          const h = tumorHits[0];
+          const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+          const p = h.point.clone();
+          if (!vrLastCutPos || p.distanceTo(vrLastCutPos) > MIN_DIST) {
+            spawnCut(p, nrm, true);
+            vrLastCutPos = p;
+          }
+        } else if (liverHits.length > 0) {
+          const h = liverHits[0];
+          const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+          const p = h.point.clone();
+          if (!vrLastCutPos || p.distanceTo(vrLastCutPos) > MIN_DIST) {
+            spawnCut(p, nrm, false);
+            vrLastCutPos = p;
+          }
+        }
+      }
+    }
+  }
+  
+  if (!vrConnected && gamepads.length === 0) {
+    gamepadIndicator.style.display = 'none';
+  }
+}
+
+// Listen for gamepad connection
+window.addEventListener('gamepadconnected', (e) => {
+  console.log('Gamepad connected:', e.gamepad.id);
+  vrConnected = true;
+  gamepadIndicator.style.display = 'block';
+  gamepadIndicator.textContent = `🎮 ${e.gamepad.id.substring(0,28)}`;
+});
+
+window.addEventListener('gamepaddisconnected', (e) => {
+  vrConnected = false;
+  gamepadIndicator.style.display = 'none';
+});
+
+// ─── RENDER LOOP ───────────────────────────────────────────────────
+const clock = new THREE.Clock();
+let tumorInBowl = false;
+
+(function loop() {
+  requestAnimationFrame(loop);
+  const t = clock.getElapsedTime();
+
+  controls.update();
+
+  // Poll gamepads every frame
+  pollGamepads();
+
+  // Tumor pulse (only if not resected)
+  if (!tumorResected && tumorGlow.visible) {
+    tumorGlow.scale.setScalar(1 + 0.15*Math.sin(t*3.8));
+    tumorMat.emissive.setHex(
+      Math.sin(t*3.8) > 0 ? 0xcc0000 : 0x880000
+    );
+  }
+
+  // Tumor fly animation to bowl
+  if (tumor.userData.flying) {
+    tumor.userData.flyT += 0.025;
+    const ft = Math.min(1.0, tumor.userData.flyT);
+    // Parabolic arc
+    const start  = tumor.userData.flyStart;
+    const target = tumor.userData.flyTarget;
+    const mid    = start.clone().lerp(target, 0.5).add(new THREE.Vector3(3, 4, 0));
+    
+    // Quadratic bezier
+    const p0 = start.clone();
+    const p1 = mid;
+    const p2 = target.clone();
+    const pos = p0.clone().multiplyScalar((1-ft)*(1-ft))
+      .add(p1.clone().multiplyScalar(2*(1-ft)*ft))
+      .add(p2.clone().multiplyScalar(ft*ft));
+    
+    tumor.position.copy(pos);
+    tumor.rotation.y = ft * Math.PI * 4;
+
+    if (ft >= 1.0) {
+      tumor.userData.flying = false;
+      tumorInBowl = true;
+      // Scale down slightly in bowl
+      tumor.scale.setScalar(0.7);
+    }
+  }
+
+  // Tumor in bowl: bob gently
+  if (tumorInBowl && !tumor.userData.flying) {
+    tumor.position.y = bowlGroup.position.y + 0.5 + 0.1 * Math.sin(t*2);
+  }
+
+  // Arrow bouncing above bowl
+  arrowBob = Math.sin(t*2.5) * 0.2;
+  arrow.position.y = 2.5 + arrowBob;
+  arrow.visible = !tumorInBowl; // hide arrow once tumor is in bowl
+
+  // Progress ring rotation
+  if (progressRing.visible) {
+    progressRing.rotation.z = t * 2;
+  }
+
+  // Blood drops
+  wounds.forEach(m => {
+    if (!m.userData.isBlood) return;
+    m.userData.life -= 0.016;
+    m.position.y    += m.userData.vy;
+    if (m.userData.life <= 0) { m.visible = false; return; }
+    m.material.opacity = Math.min(1, m.userData.life);
+  });
+
+  renderer.render(scene, camera);
+})();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
