@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>🔪 Liver VR Surgical Simulator (A-Frame)</title>
   <!-- Use jsdelivr for better reliability -->
-  <script src="https://cdn.jsdelivr.net/npm/aframe@1.4.2/dist/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/aframe@1.7.0/dist/aframe.min.js"></script>
   
   <style>
     body { background: #111; overflow: hidden; font-family: 'Courier New', monospace; }
@@ -83,16 +83,10 @@
 
     function updateStatus(msg, color) {
       const statusEl = document.getElementById('status-text');
-      const vrStatusEl = document.getElementById('vr-status');
       
       if(statusEl) {
         statusEl.innerText = msg;
         statusEl.style.color = color || '#fff';
-      }
-      if(vrStatusEl) {
-        vrStatusEl.setAttribute('value', msg);
-        vrStatusEl.setAttribute('color', color || '#fff');
-        vrStatusEl.setAttribute('visible', true);
       }
     }
 
@@ -619,7 +613,7 @@
   </div>
 
   <!-- A-FRAME SCENE -->
-  <a-scene shadow="type: pcfsoft" renderer="antialias: true; colorManagement: true; exposure: 1.1">
+  <a-scene shadow="type: pcfsoft" renderer="antialias: true; colorManagement: true; exposure: 1.1" text="font: ">#text-font</a-text></script -->
     
     <!-- ASSETS (Programmatic generation handled in components) -->
     <a-asset-item id="liver-system"></a-asset-item>
@@ -641,9 +635,6 @@
                   cursor="rayOrigin: mouse"
                   desktop-cutter>
         </a-entity>
-        
-        <!-- In-VR HUD Status Text -->
-        <a-text id="vr-status" value="Ready" position="0 -0.4 -1" align="center" width="1.5" color="#44ff88" visible="false"></a-text>
       </a-camera>
 
       <!-- VR CONTROLLERS -->
@@ -681,7 +672,6 @@
       <a-cone id="bowl-arrow" color="#ffcc00" height="0.6" radius-bottom="0.2" position="0 2.5 0" material="emissive: #664400; emissiveIntensity: 0.5">
         <a-animation attribute="position" to="0 2.7 0" direction="alternate" dur="1000" repeat="indefinite"></a-animation>
       </a-cone>
-      <a-text value="SPECIMEN" position="0 1.5 0" align="center" color="#ffcc00" look-at="#rig"></a-text>
     </a-entity>
 
   </a-scene>
