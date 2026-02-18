@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>🔪 Liver VR Surgical Simulator (A-Frame)</title>
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <!-- Use jsdelivr for better reliability -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe@1.4.2/dist/aframe.min.js"></script>
+  
   <style>
     body { background: #111; overflow: hidden; font-family: 'Courier New', monospace; }
     
@@ -49,112 +51,6 @@
       z-index: 100; border: 1px solid #664400; display: none; backdrop-filter: blur(4px);
     }
   </style>
-</head>
-<body>
-
-  <!-- 2D UI Overlay -->
-  <div id="info">
-    <h3>🔪 LIVER SURGICAL SIMULATOR</h3>
-    <span>LEFT DRAG</span> → Rotate Camera<br>
-    <span>RIGHT DRAG</span> → ✂️ Cut<br>
-    <span>SCROLL</span> → Zoom<br>
-    <div id="vrinfo">
-      🥽 <b>VR CONTROLS:</b><br>
-      Right Trigger = Cut<br>
-      Right Grip/B = Extract<br>
-      Right A = Show Arrow
-    </div>
-    <div id="status-text">Ready — right-drag to cut</div>
-    <div id="ncuts">Incisions: 0</div>
-  </div>
-
-  <div id="legend">
-    <h3>ANATOMY</h3>
-    <div><span class="dot" style="background:#ff2222"></span>Hepatic Artery</div>
-    <div><span class="dot" style="background:#dd22aa"></span>Portal Vein</div>
-    <div><span class="dot" style="background:#aadd00"></span>Bile Duct</div>
-    <div><span class="dot" style="background:#2244ff"></span>Hepatic Vein</div>
-    <div><span class="dot" style="background:#ffee00"></span>Nerve</div>
-    <div><span class="dot" style="background:#00ffff"></span>Lymphatic</div>
-    <div><span class="dot" style="background:#ff0000;box-shadow:0 0 6px #f00"></span>TUMOR</div>
-  </div>
-
-  <div id="bowl-status">🥣 Tumor placed in specimen bowl!</div>
-
-  <div id="bar">
-    <button class="ui-btn" onclick="toggleTumor()" id="btn-t" style="border-color:#ff4444; color:#ff4444">🔴 TUMOR</button>
-    <button class="ui-btn" onclick="toggleNerves()">💛 NERVES</button>
-    <button class="ui-btn" onclick="toggleVessels()">🩸 VESSELS</button>
-    <button class="ui-btn" onclick="resetAll()" style="border-color:#f55;color:#f88;">↺ RESET</button>
-  </div>
-
-  <!-- A-FRAME SCENE -->
-  <a-scene shadow="type: pcfsoft" renderer="antialias: true; colorManagement: true; exposure: 1.1">
-    
-    <!-- ASSETS (Programmatic generation handled in components) -->
-    <a-asset-item id="liver-system"></a-asset-item>
-
-    <!-- LIGHTS -->
-    <a-entity light="type: ambient; color: #ffeedd; intensity: 1.0"></a-entity>
-    <a-entity light="type: directional; color: #ffffff; intensity: 1.5; castShadow: true; shadowMapWidth: 2048; shadowMapHeight: 2048" position="0 5 20"></a-entity>
-    <a-entity light="type: directional; color: #ffeedd; intensity: 0.8" position="20 20 20"></a-entity>
-    <a-entity light="type: spot; color: #ffffff; intensity: 2.5; angle: 30; penumbra: 0.3; castShadow: true" position="0 15 5" target="#table-target"></a-entity>
-    <a-entity id="table-target" position="0 0 0"></a-entity>
-
-    <!-- CAMERA RIG -->
-    <a-entity id="rig" position="0 1 12">
-      <a-camera look-controls="enabled: true" wasd-controls="enabled: true" position="0 0 0">
-        <!-- Desktop Cursor (Raycaster) attached to camera for Mouse Interaction -->
-        <!-- We use a custom component 'desktop-cutter' to handle right-click drags -->
-        <a-entity id="mouse-cursor" 
-                  raycaster="objects: .cuttable; far: 100"
-                  cursor="rayOrigin: mouse"
-                  desktop-cutter>
-        </a-entity>
-        
-        <!-- In-VR HUD Status Text -->
-        <a-text id="vr-status" value="Ready" position="0 -0.4 -1" align="center" width="1.5" color="#44ff88" visible="false"></a-text>
-      </a-camera>
-
-      <!-- VR CONTROLLERS -->
-      <a-entity id="leftHand" oculus-touch-controls="hand: left" laser-controls="hand: left" raycaster="objects: .ui-btn; far: 5"></a-entity>
-      
-      <a-entity id="rightHand" 
-                oculus-touch-controls="hand: right" 
-                vr-cutter
-                raycaster="objects: .cuttable; showLine: true; far: 5; lineColor: #ff0000"
-                line="color: #ff0000; opacity: 0.5">
-          <!-- Scalpel Model attached to hand -->
-          <a-entity id="vr-scalpel" position="0 0 -0.05" rotation="-90 0 0" visible="true">
-             <a-cone color="#ddeeff" height="0.8" radius-bottom="0.035" position="0 0 0" rotation="180 0 0" material="metalness:0.8; roughness:0.2"></a-cone>
-             <a-cylinder color="#999aaa" height="0.1" radius="0.055" position="0 0.45 0"></a-cylinder>
-             <a-cylinder color="#221108" height="0.72" radius="0.03" position="0 0.86 0"></a-cylinder>
-          </a-entity>
-      </a-entity>
-    </a-entity>
-
-    <!-- ENVIRONMENT -->
-    <a-plane position="0 -4 0" rotation="-90 0 0" width="80" height="80" color="#111820" shadow="receive: true"></a-plane>
-    <a-box position="0 -3.5 0" width="22" height="0.3" depth="14" color="#1a3040" material="roughness: 0.4" shadow="receive: true"></a-box>
-    <a-box position="0 -3.35 0" width="21.5" height="0.12" depth="13.5" color="#1a5c30" shadow="receive: true"></a-box>
-
-    <!-- LIVER CONTAINER -->
-    <a-entity id="liver-container" liver-generator position="0 2 0"></a-entity>
-
-    <!-- SPECIMEN BOWL -->
-    <a-entity id="bowl-group" position="6 -2.5 2">
-      <a-cylinder height="1.0" radius="1.8" color="#cccccc" material="metalness: 0.4; roughness: 0.2" shadow="cast: true"></a-cylinder>
-      <a-cylinder height="0.95" radius="1.6" color="#aaaaaa" position="0 0.02 0" side="back"></a-cylinder>
-      <a-cylinder height="0.1" radius="1.1" color="#999999" position="0 -0.55 0"></a-cylinder>
-      
-      <!-- Arrow Indicator -->
-      <a-cone id="bowl-arrow" color="#ffcc00" height="0.6" radius-bottom="0.2" position="0 2.5 0" material="emissive: #664400; emissiveIntensity: 0.5">
-        <a-animation attribute="position" to="0 2.7 0" direction="alternate" dur="1000" repeat="indefinite"></a-animation>
-      </a-cone>
-      <a-text value="SPECIMEN" position="0 1.5 0" align="center" color="#ffcc00" look-at="#rig"></a-text>
-    </a-entity>
-
-  </a-scene>
 
   <script>
     // ─── GLOBAL STATE ──────────────────────────────────────────────────
@@ -185,12 +81,10 @@
       wounds: []
     };
 
-    // DOM Elements
-    const statusEl = document.getElementById('status-text');
-    const ncutsEl = document.getElementById('ncuts');
-    const vrStatusEl = document.getElementById('vr-status'); // A-Frame text
-
     function updateStatus(msg, color) {
+      const statusEl = document.getElementById('status-text');
+      const vrStatusEl = document.getElementById('vr-status');
+      
       if(statusEl) {
         statusEl.innerText = msg;
         statusEl.style.color = color || '#fff';
@@ -228,11 +122,6 @@
           // Add class for raycaster
           mesh.userData.isLiver = true;
           addMesh(mesh);
-          
-          // We need to add the class to the userData or handle it via A-Frame class system
-          // A-Frame raycaster checks entities. We need to make these meshes interactable.
-          // Since we are adding raw THREE meshes to one entity, the raycaster hits the Entity.
-          // We'll handle sub-object intersection in the cutter component.
         };
 
         createLobe(0.0, 0.0, 0.0, 4.5, 2.6, 3.2);
@@ -362,9 +251,6 @@
           const target = document.querySelector('#bowl-group').object3D.position.clone();
           target.y += 0.5;
 
-          // Convert target to local space of liver container if needed, but since container is at 0,2,0 and bowl is world space...
-          // Easiest is to move tumor in World Space. Detach it?
-          // For simplicity, we calculate the offset relative to the liver group parent
           const worldStart = els.tumor.parent.localToWorld(start.clone());
           
           // Bezier in world space
@@ -377,10 +263,6 @@
           const pos = p0.clone().multiplyScalar((1-ft)*(1-ft))
             .add(p1.clone().multiplyScalar(2*(1-ft)*ft))
             .add(p2.clone().multiplyScalar(ft*ft));
-          
-          // We need to set world position, but object is child of liverGroup.
-          // Quick hack: Temporarily detach or calculate local pos.
-          // Actually, let's just use the visual effect.
           
           const localPos = els.tumor.parent.worldToLocal(pos.clone());
           els.tumor.position.copy(localPos);
@@ -400,7 +282,8 @@
     // ─── HELPER: CUTTING LOGIC ─────────────────────────────────────────
     function spawnCut(point, normal, isTumor) {
       state.cutCount++;
-      ncutsEl.innerText = "Incisions: " + state.cutCount;
+      const ncutsEl = document.getElementById('ncuts');
+      if(ncutsEl) ncutsEl.innerText = "Incisions: " + state.cutCount;
 
       const liverEl = document.getElementById('liver-container');
       const container = liverEl.object3D; // THREE.Group
@@ -658,7 +541,8 @@
       state.tumorInBowl = false;
       state.tumorFlying = false;
       
-      ncutsEl.innerText = "Incisions: 0";
+      const ncutsEl = document.getElementById('ncuts');
+      if(ncutsEl) ncutsEl.innerText = "Incisions: 0";
       
       // Reset Visuals
       els.internals.forEach(o => {
@@ -694,7 +578,112 @@
       if(k==='r') resetAll();
       if(k==='e') extractTumorToBowl();
     });
-
   </script>
+</head>
+<body>
+
+  <!-- 2D UI Overlay -->
+  <div id="info">
+    <h3>🔪 LIVER SURGICAL SIMULATOR</h3>
+    <span>LEFT DRAG</span> → Rotate Camera<br>
+    <span>RIGHT DRAG</span> → ✂️ Cut<br>
+    <span>SCROLL</span> → Zoom<br>
+    <div id="vrinfo">
+      🥽 <b>VR CONTROLS:</b><br>
+      Right Trigger = Cut<br>
+      Right Grip/B = Extract<br>
+      Right A = Show Arrow
+    </div>
+    <div id="status-text">Ready — right-drag to cut</div>
+    <div id="ncuts">Incisions: 0</div>
+  </div>
+
+  <div id="legend">
+    <h3>ANATOMY</h3>
+    <div><span class="dot" style="background:#ff2222"></span>Hepatic Artery</div>
+    <div><span class="dot" style="background:#dd22aa"></span>Portal Vein</div>
+    <div><span class="dot" style="background:#aadd00"></span>Bile Duct</div>
+    <div><span class="dot" style="background:#2244ff"></span>Hepatic Vein</div>
+    <div><span class="dot" style="background:#ffee00"></span>Nerve</div>
+    <div><span class="dot" style="background:#00ffff"></span>Lymphatic</div>
+    <div><span class="dot" style="background:#ff0000;box-shadow:0 0 6px #f00"></span>TUMOR</div>
+  </div>
+
+  <div id="bowl-status">🥣 Tumor placed in specimen bowl!</div>
+
+  <div id="bar">
+    <button class="ui-btn" onclick="toggleTumor()" id="btn-t" style="border-color:#ff4444; color:#ff4444">🔴 TUMOR</button>
+    <button class="ui-btn" onclick="toggleNerves()">💛 NERVES</button>
+    <button class="ui-btn" onclick="toggleVessels()">🩸 VESSELS</button>
+    <button class="ui-btn" onclick="resetAll()" style="border-color:#f55;color:#f88;">↺ RESET</button>
+  </div>
+
+  <!-- A-FRAME SCENE -->
+  <a-scene shadow="type: pcfsoft" renderer="antialias: true; colorManagement: true; exposure: 1.1">
+    
+    <!-- ASSETS (Programmatic generation handled in components) -->
+    <a-asset-item id="liver-system"></a-asset-item>
+
+    <!-- LIGHTS -->
+    <a-entity light="type: ambient; color: #ffeedd; intensity: 1.0"></a-entity>
+    <a-entity light="type: directional; color: #ffffff; intensity: 1.5; castShadow: true; shadowMapWidth: 2048; shadowMapHeight: 2048" position="0 5 20"></a-entity>
+    <a-entity light="type: directional; color: #ffeedd; intensity: 0.8" position="20 20 20"></a-entity>
+    <a-entity light="type: spot; color: #ffffff; intensity: 2.5; angle: 30; penumbra: 0.3; castShadow: true" position="0 15 5" target="#table-target"></a-entity>
+    <a-entity id="table-target" position="0 0 0"></a-entity>
+
+    <!-- CAMERA RIG -->
+    <a-entity id="rig" position="0 1 12">
+      <a-camera look-controls="enabled: true" wasd-controls="enabled: true" position="0 0 0">
+        <!-- Desktop Cursor (Raycaster) attached to camera for Mouse Interaction -->
+        <!-- We use a custom component 'desktop-cutter' to handle right-click drags -->
+        <a-entity id="mouse-cursor" 
+                  raycaster="objects: .cuttable; far: 100"
+                  cursor="rayOrigin: mouse"
+                  desktop-cutter>
+        </a-entity>
+        
+        <!-- In-VR HUD Status Text -->
+        <a-text id="vr-status" value="Ready" position="0 -0.4 -1" align="center" width="1.5" color="#44ff88" visible="false"></a-text>
+      </a-camera>
+
+      <!-- VR CONTROLLERS -->
+      <a-entity id="leftHand" oculus-touch-controls="hand: left" laser-controls="hand: left" raycaster="objects: .ui-btn; far: 5"></a-entity>
+      
+      <a-entity id="rightHand" 
+                oculus-touch-controls="hand: right" 
+                vr-cutter
+                raycaster="objects: .cuttable; showLine: true; far: 5; lineColor: #ff0000"
+                line="color: #ff0000; opacity: 0.5">
+          <!-- Scalpel Model attached to hand -->
+          <a-entity id="vr-scalpel" position="0 0 -0.05" rotation="-90 0 0" visible="true">
+             <a-cone color="#ddeeff" height="0.8" radius-bottom="0.035" position="0 0 0" rotation="180 0 0" material="metalness:0.8; roughness:0.2"></a-cone>
+             <a-cylinder color="#999aaa" height="0.1" radius="0.055" position="0 0.45 0"></a-cylinder>
+             <a-cylinder color="#221108" height="0.72" radius="0.03" position="0 0.86 0"></a-cylinder>
+          </a-entity>
+      </a-entity>
+    </a-entity>
+
+    <!-- ENVIRONMENT -->
+    <a-plane position="0 -4 0" rotation="-90 0 0" width="80" height="80" color="#111820" shadow="receive: true"></a-plane>
+    <a-box position="0 -3.5 0" width="22" height="0.3" depth="14" color="#1a3040" material="roughness: 0.4" shadow="receive: true"></a-box>
+    <a-box position="0 -3.35 0" width="21.5" height="0.12" depth="13.5" color="#1a5c30" shadow="receive: true"></a-box>
+
+    <!-- LIVER CONTAINER -->
+    <a-entity id="liver-container" liver-generator position="0 2 0"></a-entity>
+
+    <!-- SPECIMEN BOWL -->
+    <a-entity id="bowl-group" position="6 -2.5 2">
+      <a-cylinder height="1.0" radius="1.8" color="#cccccc" material="metalness: 0.4; roughness: 0.2" shadow="cast: true"></a-cylinder>
+      <a-cylinder height="0.95" radius="1.6" color="#aaaaaa" position="0 0.02 0" side="back"></a-cylinder>
+      <a-cylinder height="0.1" radius="1.1" color="#999999" position="0 -0.55 0"></a-cylinder>
+      
+      <!-- Arrow Indicator -->
+      <a-cone id="bowl-arrow" color="#ffcc00" height="0.6" radius-bottom="0.2" position="0 2.5 0" material="emissive: #664400; emissiveIntensity: 0.5">
+        <a-animation attribute="position" to="0 2.7 0" direction="alternate" dur="1000" repeat="indefinite"></a-animation>
+      </a-cone>
+      <a-text value="SPECIMEN" position="0 1.5 0" align="center" color="#ffcc00" look-at="#rig"></a-text>
+    </a-entity>
+
+  </a-scene>
 </body>
 </html>
