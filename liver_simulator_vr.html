@@ -81,9 +81,11 @@
   <span>SCROLL</span> → Zoom<br>
   <span>T</span> → Toggle tumor &nbsp; <span>R</span> → Reset<br>
   <div id="vrinfo">
-    🥽 VR: Right trigger = Cut<br>
-    Left stick = Move scalpel<br>
-    Right stick = Rotate view
+    🥽 VR: Right Index Trigger = Cut<br>
+    Right Stick = Move scalpel<br>
+    Left Stick = Rotate view<br>
+    A button = Show bowl arrow<br>
+    B / Grip = Extract tumor
   </div>
   <div id="status">Ready — right-drag on liver to cut</div>
   <div id="ncuts">Incisions: 0</div>
@@ -692,7 +694,7 @@ document.addEventListener('keydown', e => {
 function toggleTumor() {
   tumorOn = !tumorOn;
   if (!tumorResected) {
-    tumor.visible     = tumorOn;
+    tumor.visible       = tumorOn;
     tumorGlow.visible = tumorOn;
   }
   document.getElementById('btn-t').style.borderColor = tumorOn ? '#ff4444' : '#666';
@@ -751,136 +753,147 @@ function resetAll() {
 }
 
 // ─── META VR / GAMEPAD SUPPORT ─────────────────────────────────────
-// Works with Meta Quest controllers via WebXR Gamepad API
+// Meta Quest controller button mapping (Standard Gamepad API in Browser):
+//   Right controller: 
+//     btn0 = A (Bottom Button)
+//     btn1 = B (Right Button)
+//     btn5 = Grip (Right Bumper R1)
+//     btn7 = Trigger (Right Trigger R2)  <-- THIS WAS THE ISSUE
+//     Axis0/1 = Thumbstick
+
 let vrScalpelPos = new THREE.Vector3(0, 1, -3);
 let vrCutting    = false;
 let vrLastCutPos = null;
 let vrConnected  = false;
+let aButtonHeld  = false; // A button keeps the arrow visible
 
 const gamepadIndicator = document.getElementById('gamepad-indicator');
 
+function getBtn(buttons, idx) {
+  const b = buttons[idx];
+  if (!b) return false;
+  return b.pressed || (typeof b.value === 'number' && b.value > 0.5);
+}
+
 function pollGamepads() {
   const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-  
+
+  // Separate left / right controllers
+  let rightCtrl = null;
+  let leftCtrl  = null;
+
   for (let i = 0; i < gamepads.length; i++) {
     const gp = gamepads[i];
     if (!gp) continue;
-    
-    // Detect Meta Quest / Oculus controllers
-    const isVR = gp.id && (
-      gp.id.toLowerCase().includes('oculus') ||
-      gp.id.toLowerCase().includes('meta') ||
-      gp.id.toLowerCase().includes('quest') ||
-      gp.id.toLowerCase().includes('openvr') ||
-      gp.id.toLowerCase().includes('xinput') // generic VR
-    );
-    
+
     if (!vrConnected) {
       vrConnected = true;
       gamepadIndicator.style.display = 'block';
-      gamepadIndicator.textContent = `🎮 ${gp.id.substring(0,28)}`;
+      gamepadIndicator.textContent   = `🎮 ${gp.id.substring(0, 28)}`;
     }
 
-    // Right controller (index 1) or any controller
-    const isRight = i === 1 || (gp.hand === 'right') || i === 0;
-    
-    // Axes: [0]=left stick X, [1]=left stick Y, [2]=right stick X, [3]=right stick Y
-    const axes = gp.axes || [];
-    
-    // Left stick / right stick → move scalpel position in 3D space
-    if (axes.length >= 2) {
-      const lx = axes[0] || 0;
-      const ly = axes[1] || 0;
-      vrScalpelPos.x += lx * 0.08;
-      vrScalpelPos.y -= ly * 0.08;
+    // Meta Quest exposes hand property; fall back to index
+    if (gp.hand === 'right' || i === 1) rightCtrl = gp;
+    else if (gp.hand === 'left' || i === 0) leftCtrl = gp;
+  }
+
+  // ── RIGHT CONTROLLER ────────────────────────────────────────────
+  if (rightCtrl) {
+    const axes    = rightCtrl.axes    || [];
+    const buttons = rightCtrl.buttons || [];
+
+    // Thumbstick axes: [0]=X, [1]=Y  (move scalpel for cutting)
+    const rx = (axes[0] || 0);
+    const ry = (axes[1] || 0);
+    if (Math.abs(rx) > 0.12) {
+      vrScalpelPos.x += rx * 0.10;
       vrScalpelPos.x  = Math.max(-8, Math.min(8, vrScalpelPos.x));
+    }
+    if (Math.abs(ry) > 0.12) {
+      vrScalpelPos.y -= ry * 0.10;
       vrScalpelPos.y  = Math.max(-4, Math.min(4, vrScalpelPos.y));
     }
 
-    // Right stick → rotate camera
-    if (axes.length >= 4) {
-      const rx = axes[2] || 0;
-      const ry = axes[3] || 0;
-      if (Math.abs(rx) > 0.15) controls.object.position.applyAxisAngle(
-        new THREE.Vector3(0,1,0), -rx * 0.02
-      );
-      if (Math.abs(ry) > 0.15) controls.object.position.y += ry * 0.05;
+    // A button (btn 0) = keep bowl arrow visible while held
+    aButtonHeld = getBtn(buttons, 0);
+    if (aButtonHeld) {
+      arrow.visible = true; // force arrow on while A is held
     }
 
-    // Buttons
-    const buttons = gp.buttons || [];
+    // Index trigger (btn 7 for Standard Gamepad R2) = CUT
+    // Note: Meta Browser maps Right Trigger to button 7, not 4.
+    const indexTrigger = getBtn(buttons, 7);
     
-    // Button 0 = A button / Cross = trigger
-    // Right trigger (button index 0 on Oculus = primary trigger)
-    const trigger = buttons[0] ? buttons[0].pressed || buttons[0].value > 0.5 : false;
-    
-    // Index trigger (button 1 on Meta)
-    const indexTrigger = buttons[1] ? buttons[1].pressed || buttons[1].value > 0.5 : false;
-    
-    const isCutting = trigger || indexTrigger;
-    
-    if (isCutting && !vrCutting) {
+    if (indexTrigger && !vrCutting) {
       vrCutting = true;
       controls.enabled = false;
-    } else if (!isCutting && vrCutting) {
+    } else if (!indexTrigger && vrCutting) {
       vrCutting = false;
       vrLastCutPos = null;
       controls.enabled = true;
     }
 
-    // Grip / B button (index 2 or 3) = extract tumor
-    const gripBtn = buttons[2] ? buttons[2].pressed : false;
-    const bBtn    = buttons[4] ? buttons[4].pressed : false;
-    if ((gripBtn || bBtn) && tumorResected) {
+    // B button (btn 1) or Grip (btn 5) = extract tumor
+    const bBtn   = getBtn(buttons, 1);
+    const grip   = getBtn(buttons, 5);
+    if ((bBtn || grip) && tumorResected) {
       extractTumorToBowl();
     }
-    
-    // Thumbstick click (button 10 or 11) = reset
-    const thumbClick = buttons[10] ? buttons[10].pressed : false;
-    if (thumbClick) resetAll();
 
-    // Move virtual scalpel using VR position
-    if (vrConnected) {
-      // Project vrScalpelPos into scene
-      const worldPos = vrScalpelPos.clone();
-      scalpel.visible = true;
-      scalpel.position.copy(worldPos);
-      scalpel.lookAt(worldPos.clone().add(new THREE.Vector3(0, -1, 0)));
+    // Thumbstick click (btn 10) = reset
+    if (getBtn(buttons, 10)) resetAll();
+  }
 
-      // VR cutting
-      if (vrCutting) {
-        raycaster.setFromCamera(
-          new THREE.Vector2(
-            (worldPos.x / 8),
-            (worldPos.y / 4)
-          ),
-          camera
-        );
+  // ── LEFT CONTROLLER ─────────────────────────────────────────────
+  if (leftCtrl) {
+    const axes    = leftCtrl.axes    || [];
+    // Left thumbstick = rotate camera (orbit)
+    const lx = (axes[0] || 0);
+    const ly = (axes[1] || 0);
+    if (Math.abs(lx) > 0.15) {
+      controls.object.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), -lx * 0.025);
+    }
+    if (Math.abs(ly) > 0.15) {
+      controls.object.position.y += ly * 0.06;
+    }
+  }
 
-        const tumorHits = !tumorResected ? raycaster.intersectObject(tumor, false) : [];
-        const liverHits = raycaster.intersectObjects(liverMeshes, false);
+  // ── SCALPEL POSITION + CUTTING ───────────────────────────────────
+  if (vrConnected && (rightCtrl || leftCtrl)) {
+    const worldPos = vrScalpelPos.clone();
+    scalpel.visible = true;
+    scalpel.position.copy(worldPos);
+    scalpel.lookAt(worldPos.clone().add(new THREE.Vector3(0, -1, 0)));
 
-        if (tumorHits.length > 0) {
-          const h = tumorHits[0];
-          const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
-          const p = h.point.clone();
-          if (!vrLastCutPos || p.distanceTo(vrLastCutPos) > MIN_DIST) {
-            spawnCut(p, nrm, true);
-            vrLastCutPos = p;
-          }
-        } else if (liverHits.length > 0) {
-          const h = liverHits[0];
-          const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
-          const p = h.point.clone();
-          if (!vrLastCutPos || p.distanceTo(vrLastCutPos) > MIN_DIST) {
-            spawnCut(p, nrm, false);
-            vrLastCutPos = p;
-          }
+    if (vrCutting) {
+      raycaster.setFromCamera(
+        new THREE.Vector2(worldPos.x / 8, worldPos.y / 4),
+        camera
+      );
+
+      const tumorHits = !tumorResected ? raycaster.intersectObject(tumor, false) : [];
+      const liverHits = raycaster.intersectObjects(liverMeshes, false);
+
+      if (tumorHits.length > 0) {
+        const h   = tumorHits[0];
+        const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+        const p   = h.point.clone();
+        if (!vrLastCutPos || p.distanceTo(vrLastCutPos) > MIN_DIST) {
+          spawnCut(p, nrm, true);
+          vrLastCutPos = p;
+        }
+      } else if (liverHits.length > 0) {
+        const h   = liverHits[0];
+        const nrm = h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+        const p   = h.point.clone();
+        if (!vrLastCutPos || p.distanceTo(vrLastCutPos) > MIN_DIST) {
+          spawnCut(p, nrm, false);
+          vrLastCutPos = p;
         }
       }
     }
   }
-  
+
   if (!vrConnected && gamepads.length === 0) {
     gamepadIndicator.style.display = 'none';
   }
@@ -956,7 +969,10 @@ let tumorInBowl = false;
   // Arrow bouncing above bowl
   arrowBob = Math.sin(t*2.5) * 0.2;
   arrow.position.y = 2.5 + arrowBob;
-  arrow.visible = !tumorInBowl; // hide arrow once tumor is in bowl
+  // Arrow: hide once tumor is in bowl, but A button can force it visible
+  if (!aButtonHeld) {
+    arrow.visible = !tumorInBowl;
+  }
 
   // Progress ring rotation
   if (progressRing.visible) {
